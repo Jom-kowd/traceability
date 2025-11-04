@@ -1,0 +1,102 @@
+/* General Body */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #eef2f1; /* Light greenish background */
+    margin: 0;
+    padding: 0;
+    color: #333;
+    line-height: 1.6;
+}
+
+/* Public Header */
+.public-navbar {
+    background-color: #278A3F; /* Main green color */
+    color: white;
+    padding: 15px 5%; /* Use percentage for padding */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+.public-navbar .brand {
+    font-size: 1.6rem;
+    font-weight: bold;
+    color: white;
+    text-decoration: none;
+}
+.public-navbar .links a {
+    color: white;
+    text-decoration: none;
+    margin-left: 20px;
+    font-weight: 500;
+    font-size: 0.95rem;
+    padding: 8px 12px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+.public-navbar .links a:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Main Content Wrapper */
+.public-content-wrapper {
+    max-width: 1100px;
+    margin: 2.5rem auto;
+    padding: 0 2rem;
+    box-sizing: border-box;
+}
+
+/* --- Index Page Styles --- */
+.intro-container {
+    background-color: #fff; padding: 3rem 4rem; border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08); margin-bottom: 2.5rem; text-align: center;
+}
+.intro-container h1 { color: #1a535c; margin-top: 0; margin-bottom: 1.5rem; font-size: 2.2rem; font-weight: 600; }
+.intro-container p { font-size: 1.1rem; color: #555; margin-bottom: 1.5rem; max-width: 700px; margin-left: auto; margin-right: auto; }
+.intro-container strong { color: #278A3F; }
+
+/* --- Tracker Section Styles (Index Page) --- */
+.tracker-section {
+    background-color: #fff; padding: 2.5rem 3rem; border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08); text-align: center;
+}
+.tracker-section h2 { font-size: 1.8rem; color: #1a535c; margin-top: 0; margin-bottom: 2rem; font-weight: 600; }
+.search-form { text-align: center; max-width: 500px; margin: 0 auto; }
+.search-form label { display: block; margin-bottom: 1rem; font-weight: 600; font-size: 1.1rem; color: #333; }
+.search-form input[type=text] {
+    width: 180px; padding: .7rem 1rem; margin-right: 10px; border: 1px solid #ccc;
+    border-radius: 4px; font-size: 1rem; display: inline-block; vertical-align: middle;
+    box-sizing: border-box; text-align: center;
+}
+.search-form input[type=text]:focus { border-color: #1a535c; outline: none; }
+.search-form button {
+    padding: .75rem 1.5rem; background-color: #278A3F; color: #fff; border: none;
+    border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 1rem;
+    vertical-align: middle; transition: background-color .2s ease;
+}
+.search-form button:hover { background-color: #1F6A31; }
+
+/* Error/Success Messages */
+.message { padding: 0.8rem; border-radius: 4px; margin-top: 1.5rem; font-weight: 600; font-size: 0.9rem; text-align: center; border: 1px solid transparent; }
+.message.error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; max-width: 400px; margin-left: auto; margin-right: auto; }
+
+/* Footer */
+.public-footer { text-align: center; margin-top: 3rem; padding: 1.5rem 0; border-top: 1px solid #ddd; font-size: 0.9rem; color: #777; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    body { padding: 0; }
+    .public-navbar { flex-direction: column; height: auto; padding: 10px 1rem;}
+    .public-navbar .brand { margin-bottom: 10px; }
+    .public-navbar .links { margin-top: 10px; display: flex; flex-wrap: wrap; justify-content: center;}
+    .public-navbar .links a { margin: 5px 8px; }
+    .public-content-wrapper { padding: 0 1rem; margin: 1.5rem auto; }
+    .intro-container, .tracker-section { padding: 1.5rem; }
+    .intro-container h1 { font-size: 1.6rem; } .tracker-section h2 { font-size: 1.3rem; } .intro-container p { font-size: 0.95rem; }
+    .search-form input[type=text] { width: 100%; margin: 0 0 10px 0; }
+    .search-form button { width: 100%; margin-left: 0; }
+    .public-footer { margin-top: 2rem; }
+}
