@@ -70,3 +70,45 @@ body{font-family:Arial,sans-serif;background-color:#EAF2E3;margin:0;padding:0;co
 .btn-action.disabled{background-color:#6c757d;pointer-events:none;cursor:default}
 .assign-form{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
 .assign-form select,.assign-form button{padding:5px 8px;font-size:.8rem}
+
+/* --- Icon Dashboard (Farmer-Friendly) --- */
+.icon-dashboard {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+    justify-content: center;
+    margin-top: 2.5rem;
+    padding-top: 2.5rem;
+    border-top: 2px solid #ddd;
+}
+
+.dashboard-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 180px;
+    height: 150px;
+    background-color: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #278A3F; /* Main green */
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-align: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+.dashboard-icon:hover {
+    background-color: #f9f9f9;
+    color: #1F6A31; /* Darker green */
+    transform: translateY(-5px);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+}
+
+.dashboard-icon i {
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
+}
