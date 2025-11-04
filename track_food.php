@@ -8,10 +8,8 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 $search_order_id = null; $search_batch_id = null; $batch_details = null; $order_details = null; $chain_history = [];
 $error_message = ''; $is_origin_verified = false; $is_order_verified = false;
 
-// --- THIS IS THE FIX ---
-// Initialize $show_survey to false at the top
+// --- FIX: Initialize $show_survey to false at the top ---
 $show_survey = false; 
-// --- END FIX ---
 
 if (isset($_GET['order_id'])) { $search_order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT); }
 elseif (isset($_GET['batch_id'])) { $search_batch_id = filter_input(INPUT_GET, 'batch_id', FILTER_VALIDATE_INT); }
@@ -82,8 +80,12 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Track Your Food - Organic Food Traceability</title>
-    <link rel="stylesheet" href="track_style.css">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="track_style.css">
     <style> body { margin: 0; } </style>
 </head>
 <body>
@@ -308,40 +310,92 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // --- QR Scanner Logic (Existing) ---
+        // --- QR Scanner Logic ---
         const scanBtn = document.getElementById('scanBtn');
         const scannerContainer = document.getElementById('scannerContainer');
         const qrReaderDiv = document.getElementById('qr-reader');
         const scanResultP = document.getElementById('scanResult');
         let html5QrCode = null;
+
         function onScanSuccess(decodedText, decodedResult) {
-            try { const url = new URL(decodedText); const batchId = url.searchParams.get('batch_id'); const orderId = url.searchParams.get('order_id');
-                if (batchId && !isNaN(batchId)) { window.location.href = `track_food.php?batch_id=${batchId}`; stopScanner(); }
-                else if (orderId && !isNaN(orderId)) { window.location.href = `track_food.php?order_id=${orderId}`; stopScanner(); }
-                else { if(scanResultP) scanResultP.textContent = 'Error: Valid ID not found in QR code.'; }
-            } catch (e) { if(scanResultP) scanResultP.textContent = 'Error: Not a valid tracking URL.'; }
+            try {
+                const url = new URL(decodedText);
+                const batchId = url.searchParams.get('batch_id');
+                const orderId = url.searchParams.get('order_id');
+                
+                if (batchId && !isNaN(batchId)) {
+                    window.location.href = `track_food.php?batch_id=${batchId}`;
+                    stopScanner();
+                } else if (orderId && !isNaN(orderId)) {
+                    window.location.href = `track_food.php?order_id=${orderId}`;
+                    stopScanner();
+                } else {
+                    if(scanResultP) scanResultP.textContent = 'Error: Valid ID not found in QR code.';
+                }
+            } catch (e) {
+                if(scanResultP) scanResultP.textContent = 'Error: Not a valid tracking URL.';
+            }
         }
-        function onScanFailure(error) { /* Ignore */ }
+
+        function onScanFailure(error) {
+            // This is called when no QR code is found. We can ignore it.
+        }
+
         function startScanner() {
-            if (!html5QrCode) { html5QrCode = new Html5Qrcode("qr-reader"); }
-            if (scannerContainer) scannerContainer.style.display = 'block'; if(scanResultP) scanLResultP.textContent = 'Initializing camera...';
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("qr-reader");
+            }
+            if (scannerContainer) scannerContainer.style.display = 'block';
+            if(scanResultP) scanResultP.textContent = 'Initializing camera...';
+            
             const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
-            .then(() => { if (scanBtn) scanBtn.innerHTML = '<i class="fas fa-stop-circle"></i>Stop'; const stopBtn = qrReaderDiv.querySelector('button'); if (!stopBtn && qrReaderDiv) { const button = document.createElement('button'); button.textContent = 'Stop Scanning'; button.onclick = stopScanner; qrReaderDiv.appendChild(button); }
-            }).catch(err => { if(scanResultP) scanResultP.textContent = `Error: ${err}`; if(scannerContainer) scannerContainer.style.display = 'none'; });
+            .then(() => {
+                if (scanBtn) scanBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop';
+                // The library adds its own stop button, this is a fallback
+                const stopBtn = qrReaderDiv.querySelector('button');
+                if (!stopBtn && qrReaderDiv) {
+                    const button = document.createElement('button');
+                    button.textContent = 'Stop Scanning';
+                    button.onclick = stopScanner;
+                    qrReaderDiv.appendChild(button);
+                }
+            }).catch(err => {
+                if(scanResultP) scanResultP.textContent = `Camera Error: ${err}. Please grant camera permissions.`;
+                if(scannerContainer) scannerContainer.style.display = 'none';
+            });
         }
+
         function stopScanner() {
             if (html5QrCode && html5QrCode.isScanning) {
                 html5QrCode.stop().then(ignore => {
-                    if(scannerContainer) scannerContainer.style.display = 'none'; if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i>Scan';
-                    const stopBtn = qrReaderDiv.querySelector('button'); if(stopBtn && qrReaderDiv) qrReaderDiv.removeChild(stopBtn);
+                    if(scannerContainer) scannerContainer.style.display = 'none';
+                    if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i> Scan';
                     if(scanResultP) scanResultP.textContent = '';
-                }).catch(err => { if(scannerContainer) scannerContainer.style.display = 'none'; if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i>Scan'; if(scanResultP) scanResultP.textContent = ''; });
-            } else { if(scannerContainer) scannerContainer.style.display = 'none'; if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i>Scan'; if(scanResultP) scanResultP.textContent = ''; }
+                }).catch(err => {
+                    // Stop failed, just hide
+                    if(scannerContainer) scannerContainer.style.display = 'none';
+                    if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i> Scan';
+                });
+            } else {
+                if(scannerContainer) scannerContainer.style.display = 'none';
+                if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i> Scan';
+            }
         }
-        if (scanBtn) { scanBtn.addEventListener('click', function(e) { e.preventDefault(); if (html5QrCode && html5QrCode.isScanning) { stopScanner(); } else { startScanner(); } }); }
+
+        if (scanBtn) {
+            scanBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                if (html5QrCode && html5QrCode.isScanning) {
+                    stopScanner();
+                } else {
+                    startScanner();
+                }
+            });
+        }
     
-        // --- Blockchain Modal Logic (Existing) ---
+        // --- Blockchain Modal Logic ---
         const modal = document.getElementById('blockchainModal');
         const btn = document.getElementById('viewChainBtn');
         const span = document.getElementById('closeModalBtn');
@@ -349,37 +403,31 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
         if (span) { span.onclick = function() { if (modal) modal.style.display = "none"; } }
         window.onclick = function(event) { if (event.target == modal) { if (modal) modal.style.display = "none"; } }
 
-        // --- NEW: Survey Modal Logic ---
+        // --- Survey Modal Logic ---
         const surveyModal = document.getElementById('surveyModal');
         const surveyClose = document.getElementById('surveyCloseBtn');
         const starRatingForm = document.getElementById('starRatingForm');
         const surveyBatchIdInput = document.getElementById('surveyBatchId');
         
-        // Show the modal? (This variable is set by PHP)
         const showSurvey = <?php echo json_encode($show_survey); ?>;
 
         if (showSurvey && surveyModal) {
-            // Show the modal after 3 seconds so the user can read the results first
             setTimeout(() => {
                 surveyModal.style.display = 'block';
             }, 3000); // 3-second delay
         }
 
-        // Close button for survey
         if (surveyClose) {
             surveyClose.onclick = function() {
                 surveyModal.style.display = "none";
             }
         }
         
-        // Handle clicking a star
         if (starRatingForm) {
             starRatingForm.addEventListener('change', function(e) {
                 if (e.target.name === 'rating') {
                     const score = e.target.value;
                     const batch_id = surveyBatchIdInput.value;
-                    
-                    // Send the rating to the server
                     submitRating(batch_id, score);
                 }
             });
@@ -389,20 +437,14 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
             try {
                 const response = await fetch('submit_rating.php', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ batch_id: batch_id, score: score })
                 });
-                
                 const result = await response.json();
                 
                 if (result.success) {
-                    // Show "Thank You" message and hide stars
                     document.getElementById('surveyForm').style.display = 'none';
                     document.getElementById('surveyThankYou').style.display = 'block';
-                    
-                    // Hide the modal after 2 more seconds
                     setTimeout(() => {
                         if (surveyModal) surveyModal.style.display = 'none';
                     }, 2000);
@@ -418,7 +460,6 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
 
     });
 </script>
-
 </body>
 </html>
 <?php
