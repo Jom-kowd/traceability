@@ -61,6 +61,10 @@ if (isset($_POST['add_batch'])) {
                     // ========================================================
                     // --- 4. **FIXED**: Generate Transaction Hash ---
                     // ========================================================
+                    
+                    // --- START TIMER ---
+                    $time_start = microtime(true);
+
                     // We must cast IDs to strings to ensure consistent data types
                     $data_to_hash = [
                         'BatchID'       => (string)$new_batch_id,    // Cast to string
@@ -75,6 +79,25 @@ if (isset($_POST['add_batch'])) {
                     ];
                     $data_string = json_encode($data_to_hash);
                     $transaction_hash = hash('sha256', $data_string);
+                    
+                    // --- END TIMER ---
+                    $time_end = microtime(true);
+                    $latency_ms = ($time_end - $time_start) * 1000; // Calculate latency in milliseconds
+
+                    // --- NEW: Log Latency ---
+                    try {
+                        $log_sql = "INSERT INTO performance_logs (action_name, latency_ms) VALUES ('create_batch_hash', ?)";
+                        $log_stmt = $conn->prepare($log_sql);
+                        if ($log_stmt) {
+                            $log_stmt->bind_param("d", $latency_ms); // "d" for double (float)
+                            $log_stmt->execute();
+                            $log_stmt->close();
+                        }
+                    } catch (Exception $e) {
+                        error_log("Failed to log performance: " . $e->getMessage()); // Log if logging fails
+                    }
+                    // --- END NEW SECTION ---
+
                     // ========================================================
 
                     // --- 5. Update the batch record with QR Path AND Hash ---

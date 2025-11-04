@@ -13,6 +13,8 @@ include_once 'header.php';
 <div class="admin-container">
     <h1>Admin Dashboard</h1>
     <p> Welcome, <?php echo htmlspecialchars($_SESSION['username'] ?? 'Admin'); ?>! |
+        <a href="performance_report.php">Performance Report</a> |
+        <a href="trust_report.php">Trust Report</a> |
         <a href="../logout.php">Logout</a> </p>
 
     <?php

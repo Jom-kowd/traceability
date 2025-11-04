@@ -7,6 +7,12 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 // --- (PHP Logic for fetching data) ---
 $search_order_id = null; $search_batch_id = null; $batch_details = null; $order_details = null; $chain_history = [];
 $error_message = ''; $is_origin_verified = false; $is_order_verified = false;
+
+// --- THIS IS THE FIX ---
+// Initialize $show_survey to false at the top
+$show_survey = false; 
+// --- END FIX ---
+
 if (isset($_GET['order_id'])) { $search_order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT); }
 elseif (isset($_GET['batch_id'])) { $search_batch_id = filter_input(INPUT_GET, 'batch_id', FILTER_VALIDATE_INT); }
 if (isset($_POST['search_order'])) {
@@ -21,8 +27,10 @@ if ($search_order_id && $search_order_id > 0) {
     if ($stmt_order) { $stmt_order->bind_param("i", $search_order_id); $stmt_order->execute(); $result_order = $stmt_order->get_result();
         if ($result_order->num_rows == 1) { $order_details = $result_order->fetch_assoc(); $search_batch_id = $order_details['SourceBatchID'];
             $stored_order_hash = $order_details['OrderHash'];
+            // --- FIX from previous error ---
             $order_data_to_rehash = ['ProductID' => (string)$order_details['ProductID'], 'SellerID' => (string)$order_details['SellerID'], 'BuyerID' => (string)$order_details['BuyerID'], 'OrderQuantity' => number_format($order_details['OrderQuantity'], 2, '.', ''), 'TotalPrice' => number_format($order_details['TotalPrice'], 2, '.', '')];
             $recalculated_order_hash = hash('sha256', json_encode($order_data_to_rehash));
+            // --- End Fix ---
             if ($stored_order_hash !== null && $stored_order_hash === $recalculated_order_hash) { $is_order_verified = true; }
         } else { $error_message = "Order ID not found."; } $stmt_order->close();
     } else { $error_message = "Error searching order."; error_log("Track food order prep fail: ".$conn->error); }
@@ -45,6 +53,12 @@ if ($search_batch_id && $search_batch_id > 0) {
             $stored_hash = $batch_details['TransactionHash']; $data_to_rehash = ['BatchID' => (string)$batch_details['BatchID'], 'ProductID' => (string)$batch_details['ProductID'], 'UserID' => (string)$batch_details['UserID'], 'BatchNumber' => $batch_details['BatchNumber'], 'SowingDate' => $batch_details['SowingDate'], 'HarvestedDate' => $batch_details['HarvestedDate'], 'CropDetails' => $batch_details['CropDetails'], 'SoilDetails' => $batch_details['SoilDetails'], 'FarmPractice' => $batch_details['FarmPractice']];
             $recalculated_hash = hash('sha256', json_encode($data_to_rehash));
             $is_origin_verified = ($stored_hash !== null && $stored_hash === $recalculated_hash);
+            
+            // --- Check if this batch was already rated ---
+            if (!isset($_COOKIE['rated_batch_' . $search_batch_id])) {
+                $show_survey = true;
+            }
+
         } else { if(empty($error_message)) $error_message = "Origin batch details (ID: $search_batch_id) not found."; $batch_details=null; } $stmt_batch->close();
     } else { $error_message = "Error preparing batch query."; error_log("Track food batch prep fail: ".$conn->error); $batch_details=null;}
 }
@@ -207,7 +221,9 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
         <p>&copy; <?php echo date("Y"); ?> Organic Food Traceability System. All rights reserved.</p>
     </footer>
 
-</div><div id="blockchainModal" class="modal">
+</div>
+
+<div id="blockchainModal" class="modal">
     <div class="modal-content">
         <span class="close-btn" id="closeModalBtn">&times;</span>
         <div class="blockchain-visualizer">
@@ -263,11 +279,36 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
         </div>
     </div>
 </div>
+
+<?php if ($show_survey && $batch_details): // Only render this modal if $show_survey is true ?>
+<div id="surveyModal" class="survey-modal">
+    <div class="survey-content">
+        <span class="survey-close-btn" id="surveyCloseBtn">&times;</span>
+        
+        <div id="surveyForm">
+            <h3>Trust This Product?</h3>
+            <p>Based on the traceability info, how much do you trust this product's organic authenticity?</p>
+            <form class="star-rating" id="starRatingForm">
+                <input type="radio" id="star5" name="rating" value="5" /><label for="star5" title="5 stars">&#9733;</label>
+                <input type="radio" id="star4" name="rating" value="4" /><label for="star4" title="4 stars">&#9733;</label>
+                <input type="radio" id="star3" name="rating" value="3" /><label for="star3" title="3 stars">&#9733;</label>
+                <input type="radio" id="star2" name="rating" value="2" /><label for="star2" title="2 stars">&#9733;</label>
+                <input type="radio" id="star1" name="rating" value="1" /><label for="star1" title="1 star">&#9733;</label>
+            </form>
+            <input type="hidden" id="surveyBatchId" value="<?php echo htmlspecialchars($batch_details['BatchID']); ?>">
+        </div>
+        
+        <div id="surveyThankYou">
+            <p><i class="fas fa-check-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><br>Thank you for your feedback!</p>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // --- QR Scanner Logic ---
+        // --- QR Scanner Logic (Existing) ---
         const scanBtn = document.getElementById('scanBtn');
         const scannerContainer = document.getElementById('scannerContainer');
         const qrReaderDiv = document.getElementById('qr-reader');
@@ -300,13 +341,81 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
         }
         if (scanBtn) { scanBtn.addEventListener('click', function(e) { e.preventDefault(); if (html5QrCode && html5QrCode.isScanning) { stopScanner(); } else { startScanner(); } }); }
     
-        // --- Modal Logic ---
+        // --- Blockchain Modal Logic (Existing) ---
         const modal = document.getElementById('blockchainModal');
         const btn = document.getElementById('viewChainBtn');
         const span = document.getElementById('closeModalBtn');
         if (btn) { btn.onclick = function() { if (modal) modal.style.display = "block"; } }
         if (span) { span.onclick = function() { if (modal) modal.style.display = "none"; } }
         window.onclick = function(event) { if (event.target == modal) { if (modal) modal.style.display = "none"; } }
+
+        // --- NEW: Survey Modal Logic ---
+        const surveyModal = document.getElementById('surveyModal');
+        const surveyClose = document.getElementById('surveyCloseBtn');
+        const starRatingForm = document.getElementById('starRatingForm');
+        const surveyBatchIdInput = document.getElementById('surveyBatchId');
+        
+        // Show the modal? (This variable is set by PHP)
+        const showSurvey = <?php echo json_encode($show_survey); ?>;
+
+        if (showSurvey && surveyModal) {
+            // Show the modal after 3 seconds so the user can read the results first
+            setTimeout(() => {
+                surveyModal.style.display = 'block';
+            }, 3000); // 3-second delay
+        }
+
+        // Close button for survey
+        if (surveyClose) {
+            surveyClose.onclick = function() {
+                surveyModal.style.display = "none";
+            }
+        }
+        
+        // Handle clicking a star
+        if (starRatingForm) {
+            starRatingForm.addEventListener('change', function(e) {
+                if (e.target.name === 'rating') {
+                    const score = e.target.value;
+                    const batch_id = surveyBatchIdInput.value;
+                    
+                    // Send the rating to the server
+                    submitRating(batch_id, score);
+                }
+            });
+        }
+        
+        async function submitRating(batch_id, score) {
+            try {
+                const response = await fetch('submit_rating.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ batch_id: batch_id, score: score })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Show "Thank You" message and hide stars
+                    document.getElementById('surveyForm').style.display = 'none';
+                    document.getElementById('surveyThankYou').style.display = 'block';
+                    
+                    // Hide the modal after 2 more seconds
+                    setTimeout(() => {
+                        if (surveyModal) surveyModal.style.display = 'none';
+                    }, 2000);
+                } else {
+                    console.error('Failed to submit rating:', result.message);
+                    alert('Error: Could not submit rating. ' + result.message);
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                alert('Error: Could not connect to server.');
+            }
+        }
+
     });
 </script>
 

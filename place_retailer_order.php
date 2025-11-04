@@ -43,6 +43,10 @@ if (isset($_POST['place_retailer_order'])) {
         // ========================================================
         // --- 1. **FIXED**: Generate Transaction Hash for the Order ---
         // ========================================================
+
+        // --- START TIMER ---
+        $time_start = microtime(true);
+
         // We cast all values to strings and format decimals to 2 places
         // to ensure the hash is identical during verification.
         $data_to_hash = [
@@ -53,6 +57,25 @@ if (isset($_POST['place_retailer_order'])) {
             'TotalPrice' => number_format($total_price, 2, '.', '')      // e.g., "1140.00"
         ];
         $transaction_hash = hash('sha256', json_encode($data_to_hash));
+        
+        // --- END TIMER ---
+        $time_end = microtime(true);
+        $latency_ms = ($time_end - $time_start) * 1000; // Calculate latency in milliseconds
+
+        // --- NEW: Log Latency ---
+        try {
+            $log_sql = "INSERT INTO performance_logs (action_name, latency_ms) VALUES ('create_order_hash', ?)";
+            $log_stmt = $conn->prepare($log_sql);
+            if ($log_stmt) {
+                $log_stmt->bind_param("d", $latency_ms); // "d" for double (float)
+                $log_stmt->execute();
+                $log_stmt->close();
+            }
+        } catch (Exception $e) {
+            error_log("Failed to log performance: " . $e->getMessage()); // Log if logging fails
+        }
+        // --- END NEW SECTION ---
+
         // ========================================================
 
         // 2. Insert into Orders table WITH the new hash
