@@ -4,72 +4,162 @@ include_once 'db.php';
 // Start session to check login status for nav bar
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// --- (PHP Logic for fetching data) ---
-$search_order_id = null; $search_batch_id = null; $batch_details = null; $order_details = null; $chain_history = [];
-$error_message = ''; $is_origin_verified = false; $is_order_verified = false;
-
-// --- FIX: Initialize $show_survey to false at the top ---
+// --- (NEW/IMPROVED PHP Logic for fetching data) ---
+$search_order_id = null; 
+$search_batch_id = null; // This will be the INTEGER ID
+$batch_details = null; 
+$order_details = null; 
+$chain_history = [];
+$error_message = ''; 
+$is_origin_verified = false; 
+$is_order_verified = false;
 $show_survey = false; 
+$search_term_display = ''; // For repopulating the search box
 
-if (isset($_GET['order_id'])) { $search_order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT); }
-elseif (isset($_GET['batch_id'])) { $search_batch_id = filter_input(INPUT_GET, 'batch_id', FILTER_VALIDATE_INT); }
-if (isset($_POST['search_order'])) {
-    $search_term = trim($_POST['search_term']);
-    if (!empty($search_term) && is_numeric($search_term)) { $search_order_id = intval($search_term); $search_batch_id = null; }
-    elseif (!empty($search_term)) { $error_message = "Please enter a valid numeric Order ID."; }
-    else { $error_message = "Please enter an Order ID to search."; }
+// Get search term from any source (POST, GET order_id, GET batch_id)
+$search_term = trim($_POST['search_term'] ?? $_GET['order_id'] ?? $_GET['batch_id'] ?? '');
+$search_term_display = $search_term; // Store for displaying in the form
+
+// --- NEW SEARCH LOGIC ---
+if (!empty($search_term)) {
+    if (is_numeric($search_term)) {
+        // Input is a number. Assume it's an Order ID first.
+        // We will also check if it's a Batch ID (int) if no order is found.
+        $search_order_id = intval($search_term);
+    } else {
+        // Input is a string (e.g., "OT-20251105-153001"). Treat it as a BatchNumber.
+        // We must find its corresponding integer BatchID.
+        $sql_find_batch = "SELECT BatchID FROM ProductBatches WHERE BatchNumber = ?";
+        $stmt_find = $conn->prepare($sql_find_batch);
+        if ($stmt_find) {
+            $stmt_find->bind_param("s", $search_term);
+            $stmt_find->execute();
+            $result_find = $stmt_find->get_result();
+            if ($result_find->num_rows == 1) {
+                $found_batch = $result_find->fetch_assoc();
+                $search_batch_id = $found_batch['BatchID']; // Found the integer ID!
+            } else {
+                $error_message = "Batch Number \"".htmlspecialchars($search_term)."\" not found.";
+            }
+            $stmt_find->close();
+        } else {
+            $error_message = "Error searching batch number.";
+            error_log("Track food find batch prep fail: ".$conn->error);
+        }
+    }
+} elseif (isset($_POST['search_order'])) {
+    // User clicked search with an empty box
+    $error_message = "Please enter an Order ID or Batch Number to search.";
 }
+// --- END NEW SEARCH LOGIC ---
+
+
+// --- Start Data Fetching (based on what we found) ---
+
+// 1. We found an Order ID (or a numeric term)
 if ($search_order_id && $search_order_id > 0) {
     $sql_order = "SELECT o.*, s.Username as SellerName, s.Address as SellerAddress, b.Username as BuyerName, b.Address as BuyerAddress, d.Username as DistributorName, d.Address as DistributorAddress, p.ProductName as OrderedProductName, p.ProductImage as OrderedProductImage, p.Quantity as ProductUnitQty, p.Price as ProductUnitPrice, p.ShelfLifeDays as ProductShelfLife, p.ProductDescription, o.TransactionHash as OrderHash FROM Orders o JOIN Users s ON o.SellerID = s.UserID JOIN Users b ON o.BuyerID = b.UserID LEFT JOIN Users d ON o.AssignedDistributorID = d.UserID JOIN Products p ON o.ProductID = p.ProductID WHERE o.OrderID = ?";
     $stmt_order = $conn->prepare($sql_order);
-    if ($stmt_order) { $stmt_order->bind_param("i", $search_order_id); $stmt_order->execute(); $result_order = $stmt_order->get_result();
-        if ($result_order->num_rows == 1) { $order_details = $result_order->fetch_assoc(); $search_batch_id = $order_details['SourceBatchID'];
+    if ($stmt_order) { 
+        $stmt_order->bind_param("i", $search_order_id); 
+        $stmt_order->execute(); 
+        $result_order = $stmt_order->get_result();
+        if ($result_order->num_rows == 1) { 
+            $order_details = $result_order->fetch_assoc(); 
+            $search_batch_id = $order_details['SourceBatchID']; // <-- This links to the batch
+            
+            // Verify Order Hash
             $stored_order_hash = $order_details['OrderHash'];
-            // --- FIX from previous error ---
             $order_data_to_rehash = ['ProductID' => (string)$order_details['ProductID'], 'SellerID' => (string)$order_details['SellerID'], 'BuyerID' => (string)$order_details['BuyerID'], 'OrderQuantity' => number_format($order_details['OrderQuantity'], 2, '.', ''), 'TotalPrice' => number_format($order_details['TotalPrice'], 2, '.', '')];
             $recalculated_order_hash = hash('sha256', json_encode($order_data_to_rehash));
-            // --- End Fix ---
             if ($stored_order_hash !== null && $stored_order_hash === $recalculated_order_hash) { $is_order_verified = true; }
-        } else { $error_message = "Order ID not found."; } $stmt_order->close();
-    } else { $error_message = "Error searching order."; error_log("Track food order prep fail: ".$conn->error); }
-} elseif ($search_batch_id && $search_batch_id > 0) {
-     $sql_order_from_batch = "SELECT o.*, s.Username as SellerName, s.Address as SellerAddress, b.Username as BuyerName, b.Address as BuyerAddress, d.Username as DistributorName, d.Address as DistributorAddress, p.ProductName as OrderedProductName, p.ProductImage as OrderedProductImage, p.Quantity as ProductUnitQty, p.Price as ProductUnitPrice, p.ShelfLifeDays as ProductShelfLife, p.ProductDescription, o.TransactionHash as OrderHash FROM Orders o JOIN Users s ON o.SellerID = s.UserID JOIN Users b ON o.BuyerID = b.UserID LEFT JOIN Users d ON o.AssignedDistributorID = d.UserID JOIN Products p ON o.ProductID = p.ProductID WHERE o.SourceBatchID = ? ORDER BY o.OrderDate DESC LIMIT 1";
-     $stmt_order_b = $conn->prepare($sql_order_from_batch);
-     if ($stmt_order_b) { $stmt_order_b->bind_param("i", $search_batch_id); $stmt_order_b->execute(); $result_order_b = $stmt_order_b->get_result(); if ($result_order_b->num_rows >= 1) { $order_details = $result_order_b->fetch_assoc(); $search_order_id = $order_details['OrderID'];
-        $stored_order_hash = $order_details['OrderHash'];
-        $order_data_to_rehash = ['ProductID' => (string)$order_details['ProductID'], 'SellerID' => (string)$order_details['SellerID'], 'BuyerID' => (string)$order_details['BuyerID'], 'OrderQuantity' => number_format($order_details['OrderQuantity'], 2, '.', ''), 'TotalPrice' => number_format($order_details['TotalPrice'], 2, '.', '')];
-        $recalculated_order_hash = hash('sha256', json_encode($order_data_to_rehash));
-        if ($stored_order_hash !== null && $stored_order_hash === $recalculated_order_hash) { $is_order_verified = true; }
-     } $stmt_order_b->close(); }
-     else { $error_message = "Error searching order from batch."; error_log("Track food order(batch) prep fail: ".$conn->error);}
-}
+
+        } else { 
+            // It wasn't an Order ID. Was it a numeric Batch ID?
+            $search_batch_id = intval($search_term); // Re-assign $search_batch_id
+            $search_order_id = null; // Clear the incorrect order ID
+        } 
+        $stmt_order->close();
+    } else { 
+        $error_message = "Error searching order."; 
+        error_log("Track food order prep fail: ".$conn->error); 
+    }
+} 
+
+// 2. We have a Batch ID (either from the string search or the numeric search)
 if ($search_batch_id && $search_batch_id > 0) {
+    
+    // Find the batch details
     $sql_batch = "SELECT pb.*, p.ProductName as RawProductName, p.ProductImage as RawProductImage, u.Username as FarmerName, u.Address as FarmerAddress, pb.TransactionHash FROM ProductBatches pb JOIN Products p ON pb.ProductID = p.ProductID JOIN Users u ON pb.UserID = u.UserID WHERE pb.BatchID = ?";
     $stmt_batch = $conn->prepare($sql_batch);
-    if ($stmt_batch) { $stmt_batch->bind_param("i", $search_batch_id); $stmt_batch->execute(); $result_batch = $stmt_batch->get_result();
-        if ($result_batch->num_rows == 1) { $batch_details = $result_batch->fetch_assoc();
-            $stored_hash = $batch_details['TransactionHash']; $data_to_rehash = ['BatchID' => (string)$batch_details['BatchID'], 'ProductID' => (string)$batch_details['ProductID'], 'UserID' => (string)$batch_details['UserID'], 'BatchNumber' => $batch_details['BatchNumber'], 'SowingDate' => $batch_details['SowingDate'], 'HarvestedDate' => $batch_details['HarvestedDate'], 'CropDetails' => $batch_details['CropDetails'], 'SoilDetails' => $batch_details['SoilDetails'], 'FarmPractice' => $batch_details['FarmPractice']];
+    if ($stmt_batch) { 
+        $stmt_batch->bind_param("i", $search_batch_id); 
+        $stmt_batch->execute(); 
+        $result_batch = $stmt_batch->get_result();
+        if ($result_batch->num_rows == 1) { 
+            $batch_details = $result_batch->fetch_assoc();
+            
+            // Verify Origin Hash
+            $stored_hash = $batch_details['TransactionHash']; 
+            $data_to_rehash = ['BatchID' => (string)$batch_details['BatchID'], 'ProductID' => (string)$batch_details['ProductID'], 'UserID' => (string)$batch_details['UserID'], 'BatchNumber' => $batch_details['BatchNumber'], 'SowingDate' => $batch_details['SowingDate'], 'HarvestedDate' => $batch_details['HarvestedDate'], 'CropDetails' => $batch_details['CropDetails'], 'SoilDetails' => $batch_details['SoilDetails'], 'FarmPractice' => $batch_details['FarmPractice']];
             $recalculated_hash = hash('sha256', json_encode($data_to_rehash));
             $is_origin_verified = ($stored_hash !== null && $stored_hash === $recalculated_hash);
             
-            // --- Check if this batch was already rated ---
+            // Check if this batch was already rated
             if (!isset($_COOKIE['rated_batch_' . $search_batch_id])) {
                 $show_survey = true;
             }
 
-        } else { if(empty($error_message)) $error_message = "Origin batch details (ID: $search_batch_id) not found."; $batch_details=null; } $stmt_batch->close();
-    } else { $error_message = "Error preparing batch query."; error_log("Track food batch prep fail: ".$conn->error); $batch_details=null;}
+            // If we didn't find an order earlier, try to find one associated with this batch
+            if (!$order_details) {
+                 $sql_order_from_batch = "SELECT o.*, s.Username as SellerName, s.Address as SellerAddress, b.Username as BuyerName, b.Address as BuyerAddress, d.Username as DistributorName, d.Address as DistributorAddress, p.ProductName as OrderedProductName, p.ProductImage as OrderedProductImage, p.Quantity as ProductUnitQty, p.Price as ProductUnitPrice, p.ShelfLifeDays as ProductShelfLife, p.ProductDescription, o.TransactionHash as OrderHash FROM Orders o JOIN Users s ON o.SellerID = s.UserID JOIN Users b ON o.BuyerID = b.UserID LEFT JOIN Users d ON o.AssignedDistributorID = d.UserID JOIN Products p ON o.ProductID = p.ProductID WHERE o.SourceBatchID = ? ORDER BY o.OrderDate DESC LIMIT 1";
+                 $stmt_order_b = $conn->prepare($sql_order_from_batch);
+                 if ($stmt_order_b) { 
+                     $stmt_order_b->bind_param("i", $search_batch_id); 
+                     $stmt_order_b->execute(); 
+                     $result_order_b = $stmt_order_b->get_result(); 
+                     if ($result_order_b->num_rows >= 1) { 
+                        $order_details = $result_order_b->fetch_assoc(); 
+                        $search_order_id = $order_details['OrderID'];
+                        
+                        // Verify Order Hash
+                        $stored_order_hash = $order_details['OrderHash'];
+                        $order_data_to_rehash = ['ProductID' => (string)$order_details['ProductID'], 'SellerID' => (string)$order_details['SellerID'], 'BuyerID' => (string)$order_details['BuyerID'], 'OrderQuantity' => number_format($order_details['OrderQuantity'], 2, '.', ''), 'TotalPrice' => number_format($order_details['TotalPrice'], 2, '.', '')];
+                        $recalculated_order_hash = hash('sha256', json_encode($order_data_to_rehash));
+                        if ($stored_order_hash !== null && $stored_order_hash === $recalculated_order_hash) { $is_order_verified = true; }
+                     } 
+                     $stmt_order_b->close(); 
+                 }
+                 else { $error_message = "Error searching order from batch."; error_log("Track food order(batch) prep fail: ".$conn->error);}
+            }
+
+        } else { 
+            if(empty($error_message)) $error_message = "No batch found for ID \"".htmlspecialchars($search_term)."\""; 
+            $batch_details=null; 
+        } 
+        $stmt_batch->close();
+    } else { 
+        $error_message = "Error preparing batch query."; 
+        error_log("Track food batch prep fail: ".$conn->error); 
+        $batch_details=null;
+    }
 }
-elseif ($search_order_id && !$search_batch_id && $order_details) { if (empty($error_message)) $error_message = "Order found (#$search_order_id), traceability link pending."; }
+elseif ($search_order_id && !$search_batch_id && $order_details) { 
+    if (empty($error_message)) $error_message = "Order found (#$search_order_id), but it is not yet linked to a farmer's batch. Traceability is pending."; 
+}
+
+// 3. Build the Chain History
 $chain_history = [];
-if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details['FarmerName'],'location'=>$batch_details['FarmerAddress'],'action'=>'Harvested','date'=>$batch_details['HarvestedDate'],'status'=>'Completed', 'icon'=>'fa-tractor'];
+if ($batch_details) { 
+    $chain_history[]=['step'=>'Farmer','actor'=>$batch_details['FarmerName'],'location'=>$batch_details['FarmerAddress'],'action'=>'Harvested','date'=>$batch_details['HarvestedDate'],'status'=>'Completed', 'icon'=>'fa-tractor'];
     if($order_details && $order_details['SourceBatchID'] == $batch_details['BatchID']){
         $chain_history[]=['step'=>'Manufacturer','actor'=>$order_details['SellerName'],'location'=>$order_details['SellerAddress'],'action'=>'Processed','date'=>$order_details['OrderDate'],'status'=>$order_details['Status'], 'icon'=>'fa-industry'];
         if($order_details['AssignedDistributorID'] && !in_array($order_details['Status'], ['Pending Confirmation', 'Processing'])){ $dist_action = ($order_details['Status'] == 'In Transit' || $order_details['Status'] == 'Delivered') ? 'In Transit' : 'Assigned'; $dist_date = $order_details['PickupDate'] ?? $order_details['OrderDate']; $chain_history[]=['step'=>'Distributor','actor'=>$order_details['DistributorName']??'Distributor','location'=>$order_details['DistributorAddress'],'action'=>$dist_action,'date'=>$dist_date,'status'=>$order_details['Status'], 'icon'=>'fa-truck-fast']; }
         if($order_details['Status']=='Delivered'){ $del_date = $order_details['DeliveryDate'] ?? $order_details['OrderDate']; $chain_history[]=['step'=>'Retailer/Customer','actor'=>$order_details['BuyerName'],'location'=>$order_details['BuyerAddress'],'action'=>'Delivered','date'=>$del_date,'status'=>'Delivered', 'icon'=>'fa-store']; }
     }
-} elseif ($order_details) { $chain_history[]=['step'=>'Order Placed','actor'=>$order_details['BuyerName'],'location'=>$order_details['BuyerAddress'],'action'=>'Order #'.$order_details['OrderID'],'date'=>$order_details['OrderDate'],'status'=>$order_details['Status'], 'icon'=>'fa-shopping-cart'];
-     if(in_array($order_details['Status'], ['Pending Confirmation', 'Processing'])) { $chain_history[]=['step'=>'Traceability Pending','actor'=>'System','location'=>'N/A','action'=>'Waiting Link','date'=>$order_details['OrderDate'],'status'=>'','icon'=>'fa-hourglass-half']; }
+} elseif ($order_details) { 
+    $chain_history[]=['step'=>'Order Placed','actor'=>$order_details['BuyerName'],'location'=>$order_details['BuyerAddress'],'action'=>'Order #'.$order_details['OrderID'],'date'=>$order_details['OrderDate'],'status'=>$order_details['Status'], 'icon'=>'fa-shopping-cart'];
+     if(in_array($order_details['Status'], ['Pending Confirmation', 'Processing'])) { $chain_history[]=['step'=>'Traceability Pending','actor'=>'System','location'=>'N/A','action'=>'Waiting for Manufacturer to link origin batch','date'=>$order_details['OrderDate'],'status'=>'Pending', 'icon'=>'fa-hourglass-half']; }
      if($order_details['AssignedDistributorID'] && !in_array($order_details['Status'], ['Pending Confirmation', 'Processing'])){ $chain_history[]=['step'=>'Distribution','actor'=>$order_details['DistributorName']??'Distributor','location'=>$order_details['DistributorAddress'],'action'=>'Assigned/In Transit','date'=>$order_details['PickupDate']??$order_details['OrderDate'],'status'=>$order_details['Status'], 'icon'=>'fa-truck-fast'];}
      if($order_details['Status']=='Delivered'){$chain_history[]=['step'=>'Delivery','actor'=>$order_details['BuyerName'],'location'=>$order_details['BuyerAddress'],'action'=>'Delivered','date'=>$order_details['DeliveryDate']??$order_details['OrderDate'],'status'=>'Delivered', 'icon'=>'fa-store'];}
 }
@@ -81,8 +171,8 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Track Your Food - Organic Food Traceability</title>
     
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https.googleapis.com">
+    <link rel="preconnect" href="https.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="track_style.css">
@@ -112,9 +202,9 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
             <h2>Track Your Food</h2>
             <div class="search-form">
                 <form action="track_food.php" method="POST" id="searchForm">
-                     <label for="search_term">Enter Order ID or Scan QR:</label>
+                     <label for="search_term">Enter Order ID or Batch Number:</label>
                     <div>
-                        <input type="text" id="search_term" name="search_term" placeholder="e.g., 123" value="<?php echo htmlspecialchars($_POST['search_term'] ?? $_GET['order_id'] ?? $_GET['batch_id'] ?? ''); ?>">
+                        <input type="text" id="search_term" name="search_term" placeholder="e.g., 17 or OT-20251105-153001" value="<?php echo htmlspecialchars($search_term_display); ?>">
                         <button type="submit" name="search_order">Search</button>
                         <button type="button" id="scanBtn" class="scan-button"><i class="fas fa-qrcode"></i>Scan</button>
                     </div>
@@ -125,8 +215,13 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                  </div>
                 <?php
                 // Display error messages
-                if (!empty($error_message) && (isset($_POST['search_order']) || isset($_GET['order_id']) || isset($_GET['batch_id'])) && !$order_details && !$batch_details ) { echo "<p class='message error'>".$error_message."</p>"; }
-                elseif (!empty($error_message) && ($order_details || $batch_details)) { echo "<p class='message error' style='background-color: #fff3cd; color: #664d03; border-color: #ffecb5;'>Note: ".$error_message."</p>"; }
+                if (!empty($error_message) && !$order_details && !$batch_details ) { 
+                    echo "<p class='message error'>".$error_message."</p>"; 
+                }
+                elseif (!empty($error_message) && ($order_details || $batch_details)) { 
+                    // This is for non-critical errors, like "link pending"
+                    echo "<p class='message error' style='background-color: #fff3cd; color: #664d03; border-color: #ffecb5;'>Note: ".$error_message."</p>"; 
+                }
                 ?>
             </div>
         </section>
@@ -148,9 +243,10 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                     <?php endif; ?>
                 </h2>
                 <?php
+                // Logic to display the "final" product info (Processed good if it exists, otherwise raw good)
                 $display_name = $order_details['OrderedProductName'] ?? ($batch_details['RawProductName'] ?? 'N/A');
                 $display_image = $order_details['OrderedProductImage'] ?? ($batch_details['RawProductImage'] ?? null);
-                $display_desc = $order_details['ProductDescription'] ?? ($batch_details['ProductDescription'] ?? 'N/A');
+                $display_desc = $order_details['ProductDescription'] ?? ($batch_details['ProductDescription'] ?? 'N/A'); // Note: Batch doesn't have its own desc
                 ?>
                 <?php if(!empty($display_image) && file_exists($display_image)){ echo '<img src="'.htmlspecialchars($display_image).'" alt="Product Image" class="product-image">'; } ?>
                 <div class="details-grid">
@@ -159,6 +255,9 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                         <div class="detail-item"><label>Order ID</label><p>#<?php echo htmlspecialchars($order_details['OrderID']); ?></p></div>
                         <div class="detail-item"><label>Quantity</label><p><?php echo htmlspecialchars($order_details['OrderQuantity']); ?></p></div>
                         <div class="detail-item"><label>Total Price</label><p>&#8369;<?php echo number_format($order_details['TotalPrice'], 2); ?></p></div>
+                    <?php endif; ?>
+                    <?php if($batch_details && !$order_details): // Show batch number if ONLY batch is found ?>
+                        <div class="detail-item"><label>Batch Number</label><p><?php echo htmlspecialchars($batch_details['BatchNumber']); ?></p></div>
                     <?php endif; ?>
                     <div class="detail-item full-width"><label>Description</label><p><?php echo nl2br(htmlspecialchars($display_desc)); ?></p></div>
                 </div>
@@ -194,12 +293,34 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                 <?php if (!empty($chain_history)): ?>
                     <div class="vertical-timeline">
                         <?php
+                         // --- Logic to correctly set 'active' and 'completed' states ---
                          $step_count = count($chain_history); $completed_status = ['Completed', 'Shipped', 'Received', 'Finished', 'Delivered']; $current_stage_found = false;
-                        for ($index = $step_count - 1; $index >= 0; $index--): $event = $chain_history[$index]; $is_completed = in_array($event['status'] ?? 'Completed', $completed_status); $is_active = false; if (!$is_completed && !$current_stage_found) { $is_active = true; $current_stage_found = true; } $chain_history[$index]['is_completed'] = $is_completed; $chain_history[$index]['is_active'] = $is_active; endfor; if (!$current_stage_found && $step_count > 0) { $chain_history[$step_count - 1]['is_completed'] = true; }
+                        
+                        // Iterate backwards to find the first non-completed step
+                        for ($index = $step_count - 1; $index >= 0; $index--): 
+                            $event = $chain_history[$index]; 
+                            $is_completed = in_array($event['status'] ?? 'Completed', $completed_status); 
+                            $is_active = false; 
+                            if (!$is_completed && !$current_stage_found) { 
+                                $is_active = true; 
+                                $current_stage_found = true; 
+                            } 
+                            $chain_history[$index]['is_completed'] = $is_completed; 
+                            $chain_history[$index]['is_active'] = $is_active; 
+                        endfor; 
+                        
+                        // If all steps were 'completed', mark the last one as the final completed step (cosmetic)
+                        if (!$current_stage_found && $step_count > 0) { 
+                             $chain_history[$step_count - 1]['is_completed'] = true; 
+                             $chain_history[$step_count - 1]['is_active'] = false; // Ensure it's not also active
+                        }
                         
                         foreach ($chain_history as $index => $event):
                             $step_class = $event['is_completed'] ? 'completed' : '';
-                            $step_class .= $event['is_active'] ? ' active' : '';
+                            // Only add 'active' if it's not also 'completed'
+                            if ($event['is_active'] && !$event['is_completed']) {
+                                $step_class .= ' active';
+                            }
                         ?>
                             <div class="timeline-item <?php echo trim($step_class); ?>">
                                 <div class="timeline-icon"><i class="fas <?php echo htmlspecialchars($event['icon'] ?? 'fa-question-circle'); ?>"></i></div>
@@ -208,6 +329,9 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                                     <p><span class="actor"><?php echo htmlspecialchars($event['actor']); ?></span></p>
                                     <p class="location"><i class="fas fa-map-marker-alt"></i> <?php echo htmlspecialchars($event['location'] ?? 'N/A'); ?></p>
                                     <p class="time"><?php echo date('Y-m-d H:i', strtotime($event['date'])); ?></p>
+                                    <?php if( ($event['status'] ?? 'Completed') != 'Completed'): ?>
+                                        <p><strong>Status:</strong> <?php echo htmlspecialchars($event['status']); ?></p>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         <?php endforeach; ?>
@@ -223,9 +347,7 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
         <p>&copy; <?php echo date("Y"); ?> Organic Food Traceability System. All rights reserved.</p>
     </footer>
 
-</div>
-
-<div id="blockchainModal" class="modal">
+</div> <div id="blockchainModal" class="modal">
     <div class="modal-content">
         <span class="close-btn" id="closeModalBtn">&times;</span>
         <div class="blockchain-visualizer">
@@ -237,6 +359,7 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                 <div class="block-data">
                     <strong>Block Type:</strong> Batch Creation<br>
                     <strong>Batch ID:</strong> <?php echo htmlspecialchars($batch_details['BatchID']); ?><br>
+                    <strong>Batch Number:</strong> <?php echo htmlspecialchars($batch_details['BatchNumber']); ?><br>
                     <strong>Farmer:</strong> <?php echo htmlspecialchars($batch_details['FarmerName']); ?><br>
                     <strong>Data Status:</strong> <?php echo $is_origin_verified ? '<span class="verified" style="padding: 2px 5px; font-size: 0.8rem;">Data Verified</span>' : '<span class="manipulated" style="padding: 2px 5px; font-size: 0.8rem;">Data Manipulated!</span>'; ?>
                 </div>
@@ -306,6 +429,7 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
     </div>
 </div>
 <?php endif; ?>
+
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
 <script>
@@ -319,20 +443,19 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
 
         function onScanSuccess(decodedText, decodedResult) {
             try {
+                // The URL in the QR code is http://localhost/traceability/track_food.php?batch_id=X
                 const url = new URL(decodedText);
                 const batchId = url.searchParams.get('batch_id');
-                const orderId = url.searchParams.get('order_id');
                 
                 if (batchId && !isNaN(batchId)) {
+                    // We found a valid batch_id. Redirect to this page with it.
                     window.location.href = `track_food.php?batch_id=${batchId}`;
                     stopScanner();
-                } else if (orderId && !isNaN(orderId)) {
-                    window.location.href = `track_food.php?order_id=${orderId}`;
-                    stopScanner();
                 } else {
-                    if(scanResultP) scanResultP.textContent = 'Error: Valid ID not found in QR code.';
+                    if(scanResultP) scanResultP.textContent = 'Error: Valid Batch ID not found in QR code.';
                 }
             } catch (e) {
+                // This catches if the QR code is not a valid URL
                 if(scanResultP) scanResultP.textContent = 'Error: Not a valid tracking URL.';
             }
         }
@@ -353,7 +476,6 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
             .then(() => {
                 if (scanBtn) scanBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop';
-                // The library adds its own stop button, this is a fallback
                 const stopBtn = qrReaderDiv.querySelector('button');
                 if (!stopBtn && qrReaderDiv) {
                     const button = document.createElement('button');
@@ -374,7 +496,6 @@ if ($batch_details) { $chain_history[]=['step'=>'Farmer','actor'=>$batch_details
                     if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i> Scan';
                     if(scanResultP) scanResultP.textContent = '';
                 }).catch(err => {
-                    // Stop failed, just hide
                     if(scannerContainer) scannerContainer.style.display = 'none';
                     if(scanBtn) scanBtn.innerHTML = '<i class="fas fa-qrcode"></i> Scan';
                 });
