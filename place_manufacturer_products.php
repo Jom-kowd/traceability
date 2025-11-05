@@ -91,7 +91,8 @@ $conn->close();
             <p>Price per Unit: $<?php echo number_format($product_price, 2); ?></p>
         </div>
     </div>
-    <form action="place_manufacturer_order.php?product_id=<?php echo $product_id; ?>" method="POST">
+    
+    <form action="place_manufacturer_products.php?product_id=<?php echo $product_id; ?>" method="POST">
         <input type="hidden" id="product-price" value="<?php echo $product_price; ?>">
         <label for="order_quantity">Quantity to Order (Required):</label>
         <input type="number" id="order_quantity" name="order_quantity" step="0.01" min="0.01" required oninput="calculateTotal()">

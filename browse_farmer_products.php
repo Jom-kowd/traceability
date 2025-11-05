@@ -39,7 +39,9 @@ $search_term = $_GET['search'] ?? '';
                 </div>
                 <div class="product-card-actions">
                     <a href="view_details.php?id=<?php echo $product['ProductID']; ?>" class="btn-view-details" title="View"><i class="fas fa-eye"></i></a>
-                    <a href="place_manufacturer_order.php?product_id=<?php echo $product['ProductID']; ?>" class="btn-order-action" title="Order"><i class="fas fa-shopping-cart"></i></a>
+                    
+                    <a href="place_manufacturer_products.php?product_id=<?php echo $product['ProductID']; ?>" class="btn-order-action" title="Order"><i class="fas fa-shopping-cart"></i></a>
+                
                 </div>
             </div>
             <?php }

@@ -47,20 +47,19 @@ include_once 'header.php';
                     <th>Email</th>
                     <th>Role</th>
                     <th>Certificate</th>
-                    <th>Action</th>
+                    <th>Valid ID</th> <th>Action</th>
                 </tr>
             </thead>
             <tbody>
             <?php
-            // Fetch users with 'Pending' status and their role name
-            $sql = "SELECT u.UserID, u.FullName, u.Email, r.RoleName, u.CertificateInfo
+            // ** UPDATED QUERY to fetch ValidIDPath **
+            $sql = "SELECT u.UserID, u.FullName, u.Email, r.RoleName, u.CertificateInfo, u.ValidIDPath
                     FROM Users u
                     JOIN UserRoles r ON u.RoleID = r.RoleID
                     WHERE u.VerificationStatus = 'Pending'
-                    ORDER BY u.UserID ASC"; // Order for consistency
-            $result = $conn->query($sql); // Execute the query
+                    ORDER BY u.UserID ASC";
+            $result = $conn->query($sql);
 
-            // Check if the query was successful and returned rows
             if ($result && $result->num_rows > 0) {
                 while($row = $result->fetch_assoc()) {
                     echo "<tr>";
@@ -68,34 +67,45 @@ include_once 'header.php';
                     echo "<td>" . htmlspecialchars($row['FullName']) . "</td>";
                     echo "<td>" . htmlspecialchars($row['Email']) . "</td>";
                     echo "<td>" . htmlspecialchars($row['RoleName']) . "</td>";
+                    
+                    // Certificate Link
                     echo "<td>";
-                    // Create link to certificate file located in parent directory's uploads folder
-                    // Check if the file actually exists
                     $cert_path = '../' . $row['CertificateInfo']; // Relative path from admin folder
                     if (!empty($row['CertificateInfo']) && file_exists($cert_path)) {
-                        echo "<a href='" . htmlspecialchars($cert_path) . "' target='_blank'>View Certificate</a>";
+                        echo "<a href='" . htmlspecialchars($cert_path) . "' target='_blank'>View Cert</a>";
                     } else if (!empty($row['CertificateInfo'])) {
-                        echo "<span style='color:grey;'>File Missing</span>"; // Indicate if DB path exists but file doesn't
+                        echo "<span style='color:grey;'>File Missing</span>";
                     }
                     else {
-                        echo "N/A"; // No certificate uploaded/required for this role
+                        echo "N/A";
                     }
                     echo "</td>";
-                    // Action links (Approve/Reject) pointing to verify.php
+                    
+                    // ** NEW: Valid ID Link **
+                    echo "<td>";
+                    $id_path = '../' . $row['ValidIDPath']; // Relative path from admin folder
+                    if (!empty($row['ValidIDPath']) && file_exists($id_path)) {
+                        echo "<a href='" . htmlspecialchars($id_path) . "' target='_blank'>View ID</a>";
+                    } else if (!empty($row['ValidIDPath'])) {
+                        echo "<span style='color:grey;'>File Missing</span>";
+                    }
+                    else {
+                        echo "N/A";
+                    }
+                    echo "</td>";
+
+                    // Action links
                     echo "<td class='action-links'>";
                     echo "<a href='verify.php?id=" . $row['UserID'] . "&action=approve' class='approve'>Approve</a> ";
-                    // Add JavaScript confirmation prompt for reject action
                     echo "<a href='verify.php?id=" . $row['UserID'] . "&action=reject' class='reject' onclick=\"return confirm('Are you sure you want to reject user #" . $row['UserID'] . "?');\">Reject</a>";
                     echo "</td>";
                     echo "</tr>";
                 }
             } elseif ($result) {
-                // Query successful but no pending users found
-                echo "<tr><td colspan='6' style='text-align:center;'>No pending user verifications found.</td></tr>";
+                echo "<tr><td colspan='7' style='text-align:center;'>No pending user verifications found.</td></tr>"; // <-- Updated colspan
             } else {
-                // Query itself failed
-                 echo "<tr><td colspan='6' style='color:red; text-align:center;'>Error fetching pending users: " . htmlspecialchars($conn->error) . "</td></tr>";
-                 error_log("Admin index - Fetch pending users failed: " . $conn->error); // Log error
+                 echo "<tr><td colspan='7' style='color:red; text-align:center;'>Error fetching pending users: " . htmlspecialchars($conn->error) . "</td></tr>"; // <-- Updated colspan
+                 error_log("Admin index - Fetch pending users failed: " . $conn->error);
             }
             ?>
             </tbody>
