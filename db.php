@@ -1,6 +1,6 @@
 <?php
 /* Database Connection */
-$servername = "localhost";
+$servername = "localhost"; // Assuming the database is hosted locally
 $username = "root";       // Default WAMP username
 $password = "";           // Default WAMP password
 $dbname = "OrganicTraceabilityDB"; // Make sure this matches your DB name
