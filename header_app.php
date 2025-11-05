@@ -14,9 +14,13 @@ if (!isset($_SESSION['user_id'])) {
 $user_id = $_SESSION['user_id'];
 $role = $_SESSION['role_name'] ?? ''; // Safely get role
 
-// --- 2. Fetch Full User Data (including profile fields) ---
-$sql_sec = "SELECT VerificationStatus, RoleID, FullName, Address FROM Users WHERE UserID = ?";
+// --- 2. Fetch Full User Data (including profile and expiry) ---
+// !! UPDATED: Added CertificateExpiryDate and ValidIDExpiryDate
+$sql_sec = "SELECT VerificationStatus, RoleID, FullName, Address, 
+                   CertificateExpiryDate, ValidIDExpiryDate 
+            FROM Users WHERE UserID = ?";
 $stmt_sec = $conn->prepare($sql_sec);
+$user_sec = null; // Initialize
 
 if ($stmt_sec) {
     $stmt_sec->bind_param("i", $user_id);
@@ -42,26 +46,60 @@ if ($stmt_sec) {
 // ==================================================================
 // --- 4. Profile Completion Check ---
 // ==================================================================
-// Check if essential profile fields are empty
 $profile_incomplete = (empty($user_sec['FullName']) || empty($user_sec['Address']));
-
-// Get the name of the current script (e.g., "manage_products.php")
 $current_page = basename($_SERVER['PHP_SELF']);
-
-// Define pages that are ALWAYS allowed, even with an incomplete profile
 $allowed_pages = ['profile.php', 'change_password.php', 'logout.php', 'dashboard.php'];
-
-// Define roles that MUST have a complete profile to operate
 $roles_that_need_profile = ['Farmer', 'Manufacturer', 'Distributor', 'Retailer'];
 
-// If the user's role needs a profile, AND their profile is incomplete,
-// AND they are NOT trying to access an allowed page...
 if (in_array($role, $roles_that_need_profile) && $profile_incomplete && !in_array($current_page, $allowed_pages)) {
-    // ...force redirect them to profile.php.
     header("Location: profile.php?error=complete_profile");
     exit;
 }
-// If we are here, user is logged in, approved, and has a complete profile (if required).
+
+// ==================================================================
+// --- 5. NEW: Expiry Date Warning Check ---
+// ==================================================================
+$expiry_warning_message = '';
+$is_business_role = in_array($role, $roles_that_need_profile);
+
+if ($is_business_role && $current_page != 'profile.php') {
+    $today = new DateTime();
+    $warning_date = (new DateTime())->modify('+30 days'); // 30 days from now
+
+    $cert_expiry_str = $user_sec['CertificateExpiryDate'];
+    $id_expiry_str = $user_sec['ValidIDExpiryDate'];
+
+    $expired_docs = [];
+    $expiring_docs = [];
+
+    // Check Certificate (Roles 1 & 2)
+    if (($role == 'Farmer' || $role == 'Manufacturer') && !empty($cert_expiry_str)) {
+        $cert_expiry_date = new DateTime($cert_expiry_str);
+        if ($cert_expiry_date < $today) {
+            $expired_docs[] = 'Organic Certificate';
+        } elseif ($cert_expiry_date < $warning_date) {
+            $expiring_docs[] = 'Organic Certificate';
+        }
+    }
+    
+    // Check Valid ID (Roles 1, 2, 3, 4)
+    if (!empty($id_expiry_str)) {
+        $id_expiry_date = new DateTime($id_expiry_str);
+        if ($id_expiry_date < $today) {
+            $expired_docs[] = 'Valid ID';
+        } elseif ($id_expiry_date < $warning_date) {
+            $expiring_docs[] = 'Valid ID';
+        }
+    }
+
+    // Build the warning message
+    if (!empty($expired_docs)) {
+        $expiry_warning_message = "<strong>Action Required:</strong> Your " . implode(' and ', $expired_docs) . " has expired. Please <a href='profile.php'>update your profile</a> to ensure compliance.";
+    } elseif (!empty($expiring_docs)) {
+        $expiry_warning_message = "<strong>Warning:</strong> Your " . implode(' and ', $expiring_docs) . " will expire soon. Please <a href='profile.php'>update your profile</a>.";
+    }
+}
+// --- End of Expiry Check ---
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -73,6 +111,28 @@ if (in_array($role, $roles_that_need_profile) && $profile_incomplete && !in_arra
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="app_style.css"> 
+    
+    <style>
+        .expiry-warning-banner {
+            background-color: #fff3cd;
+            color: #664d03;
+            padding: 1rem 1.5rem;
+            text-align: center;
+            font-weight: 500;
+            border-bottom: 1px solid #ffecb5;
+        }
+        .expiry-warning-banner a {
+            color: #0056b3;
+            font-weight: 700;
+            text-decoration: underline;
+        }
+        .expiry-warning-banner.expired {
+            background-color: #f8d7da;
+            color: #721c24;
+            border-bottom: 1px solid #f5c6cb;
+            font-weight: 700;
+        }
+    </style>
 </head>
 <body>
     <header class="top-navbar">
@@ -80,7 +140,7 @@ if (in_array($role, $roles_that_need_profile) && $profile_incomplete && !in_arra
             <a href="dashboard.php" class="navbar-brand">Organic Food Traceability</a>
             <nav class="navbar-links">
                 <?php
-                // Role-Based Navigation (Latest version)
+                // Role-Based Navigation
                 if ($role == 'Farmer') {
                     echo '<a href="manage_products.php">My Raw Products</a> ';
                     echo '<a href="farmer_orders.php">Incoming Orders</a>';
@@ -104,4 +164,13 @@ if (in_array($role, $roles_that_need_profile) && $profile_incomplete && !in_arra
             </div>
         </div>
     </header>
+    
+    <?php
+    // --- !! NEW: Display the warning banner !! ---
+    if (!empty($expiry_warning_message)) {
+        $banner_class = (strpos($expiry_warning_message, 'expired') !== false) ? 'expired' : '';
+        echo "<div class='expiry-warning-banner " . $banner_class . "'>" . $expiry_warning_message . "</div>";
+    }
+    ?>
+    
 <div class="main-content">

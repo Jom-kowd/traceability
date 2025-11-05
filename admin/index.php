@@ -19,12 +19,10 @@ include_once 'header.php';
 
     <?php
         if (isset($_GET['success'])) {
-             // Provide specific success messages if needed
              $success_msg = ($_GET['success'] == 'updated') ? 'User status updated successfully!' : 'Operation successful!';
              echo '<p class="message success">'.htmlspecialchars($success_msg).'</p>';
         }
         if (isset($_GET['error'])) {
-             // Provide more specific error messages based on the code
              $error_code = $_GET['error'];
              $error_text = 'An error occurred.';
              if ($error_code == 'invalidaction') $error_text = 'Invalid action specified.';
@@ -47,18 +45,22 @@ include_once 'header.php';
                     <th>Email</th>
                     <th>Role</th>
                     <th>Certificate</th>
-                    <th>Valid ID</th> <th>Action</th>
+                    <th>Cert Expiry</th> <th>Valid ID</th> 
+                    <th>ID Expiry</th> <th>Action</th>
                 </tr>
             </thead>
             <tbody>
             <?php
-            // ** UPDATED QUERY to fetch ValidIDPath **
-            $sql = "SELECT u.UserID, u.FullName, u.Email, r.RoleName, u.CertificateInfo, u.ValidIDPath
+            // ** UPDATED QUERY to fetch Expiry Dates **
+            $sql = "SELECT u.UserID, u.FullName, u.Email, r.RoleName, 
+                           u.CertificateInfo, u.ValidIDPath, 
+                           u.CertificateExpiryDate, u.ValidIDExpiryDate
                     FROM Users u
                     JOIN UserRoles r ON u.RoleID = r.RoleID
                     WHERE u.VerificationStatus = 'Pending'
-                    ORDER BY u.UserID ASC";
-            $result = $conn->query($sql);
+                    ORDER BY u.UserID ASC"; 
+            $result = $conn->query($sql); 
+            $today = new DateTime(); // Today's date for comparison
 
             if ($result && $result->num_rows > 0) {
                 while($row = $result->fetch_assoc()) {
@@ -70,28 +72,44 @@ include_once 'header.php';
                     
                     // Certificate Link
                     echo "<td>";
-                    $cert_path = '../' . $row['CertificateInfo']; // Relative path from admin folder
+                    $cert_path = '../' . $row['CertificateInfo']; 
                     if (!empty($row['CertificateInfo']) && file_exists($cert_path)) {
                         echo "<a href='" . htmlspecialchars($cert_path) . "' target='_blank'>View Cert</a>";
                     } else if (!empty($row['CertificateInfo'])) {
                         echo "<span style='color:grey;'>File Missing</span>";
-                    }
-                    else {
-                        echo "N/A";
-                    }
+                    } else { echo "N/A"; }
                     echo "</td>";
-                    
-                    // ** NEW: Valid ID Link **
+
+                    // ** NEW: Cert Expiry Date **
                     echo "<td>";
-                    $id_path = '../' . $row['ValidIDPath']; // Relative path from admin folder
+                    if (!empty($row['CertificateExpiryDate'])) {
+                        $expiry_date = new DateTime($row['CertificateExpiryDate']);
+                        $is_expired = $expiry_date < $today;
+                        echo "<span style='" . ($is_expired ? "color:red; font-weight:bold;" : "") . "'>" . 
+                             htmlspecialchars($row['CertificateExpiryDate']) . 
+                             ($is_expired ? " (EXPIRED)" : "") . "</span>";
+                    } else { echo "N/A"; }
+                    echo "</td>";
+
+                    // Valid ID Link
+                    echo "<td>";
+                    $id_path = '../' . $row['ValidIDPath']; 
                     if (!empty($row['ValidIDPath']) && file_exists($id_path)) {
                         echo "<a href='" . htmlspecialchars($id_path) . "' target='_blank'>View ID</a>";
                     } else if (!empty($row['ValidIDPath'])) {
                         echo "<span style='color:grey;'>File Missing</span>";
-                    }
-                    else {
-                        echo "N/A";
-                    }
+                    } else { echo "N/A"; }
+                    echo "</td>";
+
+                    // ** NEW: ID Expiry Date **
+                    echo "<td>";
+                    if (!empty($row['ValidIDExpiryDate'])) {
+                        $expiry_date = new DateTime($row['ValidIDExpiryDate']);
+                        $is_expired = $expiry_date < $today;
+                        echo "<span style='" . ($is_expired ? "color:red; font-weight:bold;" : "") . "'>" . 
+                             htmlspecialchars($row['ValidIDExpiryDate']) . 
+                             ($is_expired ? " (EXPIRED)" : "") . "</span>";
+                    } else { echo "N/A"; }
                     echo "</td>";
 
                     // Action links
@@ -102,10 +120,10 @@ include_once 'header.php';
                     echo "</tr>";
                 }
             } elseif ($result) {
-                echo "<tr><td colspan='7' style='text-align:center;'>No pending user verifications found.</td></tr>"; // <-- Updated colspan
+                echo "<tr><td colspan='9' style='text-align:center;'>No pending user verifications found.</td></tr>"; // Updated colspan
             } else {
-                 echo "<tr><td colspan='7' style='color:red; text-align:center;'>Error fetching pending users: " . htmlspecialchars($conn->error) . "</td></tr>"; // <-- Updated colspan
-                 error_log("Admin index - Fetch pending users failed: " . $conn->error);
+                 echo "<tr><td colspan='9' style='color:red; text-align:center;'>Error fetching pending users: " . htmlspecialchars($conn->error) . "</td></tr>"; // Updated colspan
+                 error_log("Admin index - Fetch pending users failed: " . $conn->error); 
             }
             ?>
             </tbody>

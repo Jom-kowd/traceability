@@ -2,12 +2,34 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 include_once 'db.php';
 $error_msg = '';
-$form_values = ['fullname' => '','email' => '','username' => '','role_id' => ''];
+$form_values = [
+    'fullname' => '',
+    'email' => '',
+    'username' => '',
+    'role_id' => '',
+    'certificate_expiry' => '', // Added for repopulation
+    'valid_id_expiry' => ''    // Added for repopulation
+];
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
-    $fullname = trim($_POST['fullname']); $email = trim($_POST['email']); $username = trim($_POST['username']);
-    $password = $_POST['password']; $role_id = filter_input(INPUT_POST, 'role_id', FILTER_VALIDATE_INT);
-    $form_values = ['fullname' => $fullname,'email' => $email,'username' => $username,'role_id' => $role_id];
+    $fullname = trim($_POST['fullname']); 
+    $email = trim($_POST['email']); 
+    $username = trim($_POST['username']);
+    $password = $_POST['password']; 
+    $role_id = filter_input(INPUT_POST, 'role_id', FILTER_VALIDATE_INT);
+    
+    // --- NEW: Get Expiry Dates ---
+    $certificate_expiry = !empty($_POST['certificate_expiry']) ? trim($_POST['certificate_expiry']) : NULL;
+    $valid_id_expiry = !empty($_POST['valid_id_expiry']) ? trim($_POST['valid_id_expiry']) : NULL;
+
+    $form_values = [
+        'fullname' => $fullname,
+        'email' => $email,
+        'username' => $username,
+        'role_id' => $role_id,
+        'certificate_expiry' => $certificate_expiry,
+        'valid_id_expiry' => $valid_id_expiry
+    ];
     
     // --- Validation and registration logic ---
     if (empty($fullname)||empty($email)||empty($username)||empty($password)||empty($role_id)) { $error_msg="All fields are required."; }
@@ -23,7 +45,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
         if (empty($error_msg)) {
             $password_hash = password_hash($password, PASSWORD_BCRYPT);
             $certificate_path = NULL;
-            $valid_id_path = NULL; // <-- NEW: Variable for the ID
+            $valid_id_path = NULL; 
             $verification_status = '';
             
             // Roles 1, 2, 3, 4 require verification. Role 5 (Consumer) is auto-approved.
@@ -34,7 +56,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
                 $verification_status = 'Pending'; // All business roles must be approved
                 
                 // --- Helper Function for File Uploads ---
-                // (We create this to avoid repeating code)
                 $upload_dir = 'uploads/';
                 if (!is_dir($upload_dir)) { mkdir($upload_dir, 0755, true); }
                 $allowed_types = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -74,11 +95,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
                 // 1. Check for Valid ID (Required for roles 1, 2, 3, 4)
                 $valid_id_path = $file_upload_error('valid_id');
                 if ($valid_id_path === NULL && empty($error_msg)) { $error_msg = "Valid ID is required for this role."; }
+                if ($valid_id_expiry === NULL && empty($error_msg)) { $error_msg = "Valid ID Expiry Date is required."; }
 
-                // 2. Check for Certificate (Required for roles 1, 2 ONLY)
+                // 2. Check for Certificate (Required for roles 1, 2)
                 if (empty($error_msg) && $is_producer_role) {
                     $certificate_path = $file_upload_error('certificate');
                     if ($certificate_path === NULL && empty($error_msg)) { $error_msg = "Certificate is required for this role."; }
+                    if ($certificate_expiry === NULL && empty($error_msg)) { $error_msg = "Certificate Expiry Date is required."; }
                 }
 
             } else {
@@ -88,11 +111,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
 
             if (empty($error_msg)) {
                 // ** UPDATED INSERT QUERY **
-                $sql_insert = "INSERT INTO Users (Username, PasswordHash, RoleID, FullName, Email, CertificateInfo, ValidIDPath, VerificationStatus) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                $sql_insert = "INSERT INTO Users 
+                                (Username, PasswordHash, RoleID, FullName, Email, 
+                                 CertificateInfo, ValidIDPath, CertificateExpiryDate, ValidIDExpiryDate, VerificationStatus) 
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $stmt_insert = $conn->prepare($sql_insert);
                 if ($stmt_insert) {
-                    // Note the new 's' for ValidIDPath and the new variable
-                    $stmt_insert->bind_param("ssisssss", $username, $password_hash, $role_id, $fullname, $email, $certificate_path, $valid_id_path, $verification_status);
+                    // Note the new 'ssss' for the dates and status
+                    $stmt_insert->bind_param("ssisssssss", 
+                        $username, $password_hash, $role_id, $fullname, $email, 
+                        $certificate_path, $valid_id_path, $certificate_expiry, $valid_id_expiry, $verification_status
+                    );
                     
                     if ($stmt_insert->execute()) {
                         $success_msg = "Registration successful! " . ($verification_status == 'Pending' ? "Your account requires admin approval." : "You can now log in.");
@@ -107,7 +136,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
             }
         }
     }
-    // If we're here, an error occurred, and the page will reload with $error_msg
 }
 ?>
 <!DOCTYPE html>
@@ -117,7 +145,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
     <title>Register - Organic Food Traceability</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style> body { margin: 0; } </style>
+    <style> 
+        body { margin: 0; } 
+        /* Simple grid for file + date */
+        .upload-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            align-items: end;
+        }
+    </style>
 </head>
 <body>
     <header class="public-navbar">
@@ -153,15 +190,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
                 </select>
                 
                 <div id="valid-id-upload" style="display: none;">
-                    <label for="valid_id">Valid ID (Business Permit, Gov't ID):</label>
+                    <p style="margin-top: 1rem; margin-bottom: 0.5rem; font-weight: bold; color: #333;">Business/Personal ID</p>
                     <p>Required for all business roles (Farmer, Mfr, Distributor, Retailer).</p>
-                    <input type="file" id="valid_id" name="valid_id" accept=".pdf,.jpg,.jpeg,.png">
+                    <div class="upload-group">
+                        <div>
+                            <label for="valid_id">Valid ID (PDF/JPG/PNG):</label>
+                            <input type="file" id="valid_id" name="valid_id" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                        <div>
+                            <label for="valid_id_expiry">ID Expiry Date:</label>
+                            <input type="date" id="valid_id_expiry" name="valid_id_expiry" value="<?php echo htmlspecialchars($form_values['valid_id_expiry']); ?>">
+                        </div>
+                    </div>
                 </div>
 
                 <div id="certificate-upload" style="display: none;">
-                    <label for="certificate">Organic Certificate (PDF/JPG/PNG):</label>
+                    <p style="margin-top: 1rem; margin-bottom: 0.5rem; font-weight: bold; color: #333;">Organic Certificate</p>
                     <p>Required for Farmer/Mfr.</p>
-                    <input type="file" id="certificate" name="certificate" accept=".pdf,.jpg,.jpeg,.png">
+                    <div class="upload-group">
+                        <div>
+                            <label for="certificate">Certificate File (PDF/JPG/PNG):</label>
+                            <input type="file" id="certificate" name="certificate" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                        <div>
+                            <label for="certificate_expiry">Cert Expiry Date:</label>
+                            <input type="date" id="certificate_expiry" name="certificate_expiry" value="<?php echo htmlspecialchars($form_values['certificate_expiry']); ?>">
+                        </div>
+                    </div>
                 </div>
 
                 <button type="submit" name="register">Register</button>
@@ -179,8 +234,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
         // Get elements
         var certUploadDiv = document.getElementById("certificate-upload");
         var certInput = document.getElementById("certificate");
+        var certExpiryInput = document.getElementById("certificate_expiry"); // New
+        
         var idUploadDiv = document.getElementById("valid-id-upload");
         var idInput = document.getElementById("valid_id");
+        var idExpiryInput = document.getElementById("valid_id_expiry"); // New
 
         // Define role logic
         var isProducer = (val == "1" || val == "2"); // Farmer, Mfr
@@ -189,10 +247,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['register'])) {
         // Show/hide Certificate
         certUploadDiv.style.display = isProducer ? "block" : "none";
         certInput.required = isProducer;
+        certExpiryInput.required = isProducer; // New
 
         // Show/hide Valid ID
         idUploadDiv.style.display = isBusiness ? "block" : "none";
         idInput.required = isBusiness;
+        idExpiryInput.required = isBusiness; // New
     } 
     // Run on page load to check pre-filled values
     checkRole();

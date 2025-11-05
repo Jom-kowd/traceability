@@ -1,147 +1,138 @@
 <?php
-// Includes header_app.php: Security check, session_start(), $conn, $role, $user_id
-include_once 'header_app.php';
-
-// --- Security Check (Farmer & Mfr access this page) ---
+include_once 'header_app.php'; 
 if ($role != 'Farmer' && $role != 'Manufacturer') {
-    echo "<h1 style='color:red;'>Access Denied</h1><p>You do not have permission to view this page.</p></div></body></html>";
-    if (isset($conn) && $conn instanceof mysqli && $conn->thread_id) { $conn->close(); }
-    exit;
+    echo "<h1 style='color:red;'>Access Denied</h1></div></body></html>"; exit;
 }
-
-// ==================================================================
-// --- NEW: Profile Completion Check for this specific page ---
-// ==================================================================
-// Fetch FullName and Address just for this check
-$sql_profile_check = "SELECT FullName, Address FROM Users WHERE UserID = ?";
-$stmt_profile_check = $conn->prepare($sql_profile_check);
-$profile_incomplete = true; // Assume incomplete until proven otherwise
-
-if ($stmt_profile_check) {
-    $stmt_profile_check->bind_param("i", $user_id);
-    $stmt_profile_check->execute();
-    $result_profile = $stmt_profile_check->get_result();
-    if($user_profile = $result_profile->fetch_assoc()) {
-        // Profile is complete ONLY if both FullName and Address are NOT empty
-        if (!empty($user_profile['FullName']) && !empty($user_profile['Address'])) {
-            $profile_incomplete = false; // Profile is complete!
-        }
-    }
-    $stmt_profile_check->close();
-} else {
-    // DB error, block access just in case
-    error_log("Profile check prepare failed: " . $conn->error);
-    echo "<h1>Error</h1><p>Could not verify user profile. Please try again later.</p></div></body></html>";
-    if (isset($conn)) $conn->close();
-    exit;
-}
-
-// If profile is incomplete, redirect them to profile.php
-if ($profile_incomplete) {
-    // We close the connection before redirecting
-    if (isset($conn) && $conn instanceof mysqli && $conn->thread_id) { $conn->close(); }
-    header("Location: profile.php?error=complete_profile");
-    exit;
-}
-// --- End of Profile Completion Check ---
-
-
-$search_term = $_GET['search'] ?? ''; // Handle search
+$is_farmer = ($role == 'Farmer'); 
 ?>
-<title>Manage Products - Organic Traceability</title>
-
-<div class="page-header">
-    <h1>Manage <?php echo ($role == 'Farmer' ? 'Raw' : 'Processed'); ?> Products</h1>
-    <a href="add_product.php" class="btn-add">+ Add New Product</a>
-</div>
-
-<div class="search-bar" style="margin-bottom: 2rem;">
-    <form action="manage_products.php" method="GET">
-        <input type="text" name="search" placeholder="Search by Product Name..." value="<?php echo htmlspecialchars($search_term); ?>">
-        <button type="submit"><i class="fas fa-search"></i></button>
-    </form>
-</div>
-
+<title>My <?php echo $is_farmer ? 'Raw' : 'Processed'; ?> Products</title>
 <style>
-.product-card-details{padding:1rem;background:#f9f9f9;border-top:1px solid #eee;font-size:.9rem}
-.detail-row{display:flex;justify-content:space-between;margin-bottom:.5rem}
-.detail-row strong{color:#333} .detail-row span{color:#555}
+/* ... (styles are unchanged) ... */
+.table-wrapper{background:#fff;padding:1.5rem;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.05);overflow-x:auto}
+table{width:100%;border-collapse:collapse} th,td{padding:1rem;border-bottom:1px solid #eee;text-align:left;vertical-align:middle} th{background:#f9f9f9}
+.btn-add-new{display:inline-block;background:#0d6efd;color:#fff;padding:.75rem 1.5rem;border-radius:5px;text-decoration:none;font-weight:600;margin-bottom:1.5rem}
+.action-icons a{color:#555;margin-right:15px;font-size:1.1rem;text-decoration:none}
+.action-icons a.icon-delete{color:#dc3545}
+.product-image-thumb{width:60px;height:60px;object-fit:cover;border-radius:5px;margin-right:15px;vertical-align:middle}
+.batches-table th, .batches-table td { background: #fdfdfd; padding: 0.75rem; font-size: 0.9rem; }
+.batches-table { margin-top: 1rem; border: 1px solid #eee; }
+.batches-table th { background: #fafafa; }
 </style>
 
-<div class="product-grid">
-    <?php
-    $current_user_id = $_SESSION['user_id'];
-    // Determine product type filter based on role
-    $product_type_filter = ($role == 'Farmer' ? 'Raw' : 'Processed');
+<div class="page-header">
+    <h1>My <?php echo $is_farmer ? 'Raw' : 'Processed'; ?> Products</h1>
+</div>
 
-    $sql = "SELECT * FROM Products WHERE CreatedByUserID = ? AND ProductType = ?"; // Fetch user's products of correct type
-    $params = [$current_user_id, $product_type_filter];
-    $types = "is"; // integer, string
-
-    if (!empty($search_term)) {
-        $sql .= " AND ProductName LIKE ?";
-        $search_like = "%" . $search_term . "%";
-        $params[] = $search_like;
-        $types .= "s";
-    }
-    $sql .= " ORDER BY ProductName ASC"; // Order alphabetically
-
-    $stmt = $conn->prepare($sql);
-    if ($stmt) {
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        if ($result->num_rows > 0) {
-            // Loop through results and display product cards
-            while ($product = $result->fetch_assoc()) {
-                ?>
-                <div class="product-card">
-                    <h3><?php echo htmlspecialchars($product['ProductName']); ?></h3>
-                    <?php // Display image
-                    if (!empty($product['ProductImage']) && file_exists($product['ProductImage'])) {
-                        echo '<img src="'.htmlspecialchars($product['ProductImage']).'" alt="'.htmlspecialchars($product['ProductName']).'" class="product-card-image">';
-                    } else {
-                        echo '<img src="https://via.placeholder.com/300x200.png?text=No+Image" alt="No Image" class="product-card-image">';
-                    } ?>
-                    <div class="product-card-details">
-                        <div class="detail-row"><strong>Quantity:</strong><span><?php echo htmlspecialchars($product['Quantity'] ?? 0); ?></span></div>
-                        <div class="detail-row"><strong>Price:</strong><span>₱<?php echo number_format($product['Price'] ?? 0, 2); ?></span></div>
-                        <div class="detail-row"><strong>Shelf Life:</strong><span><?php echo htmlspecialchars($product['ShelfLifeDays'] ?? 0); ?> days</span></div>
-                    </div>
-                    <div class="product-card-actions">
-                        <a href="edit_product.php?id=<?php echo $product['ProductID']; ?>" class="btn-edit" title="Edit"><i class="fas fa-pencil-alt"></i></a>
-                        <a href="delete_product.php?id=<?php echo $product['ProductID']; ?>" class="btn-delete" title="Delete" onclick="return confirm('Are you sure? Deleting may fail if batches or orders are linked.');"><i class="fas fa-trash-alt"></i></a>
-                        
-                        <?php
-                        // --- Button visibility logic ---
-                        // Only show the "Add Batch Details" (+) button if the logged-in user is a 'Farmer'
-                        if ($role == 'Farmer'):
-                        ?>
-                            <a href="add_batch.php?product_id=<?php echo $product['ProductID']; ?>" class="btn-add-details" title="Add Batch Details"><i class="fas fa-plus-circle"></i></a>
-                        <?php endif; ?>
-
-                        <a href="view_details.php?id=<?php echo $product['ProductID']; ?>" class="btn-view-details" title="View Details"><i class="fas fa-eye"></i></a>
-                    </div>
-                </div>
-                <?php
-            } // end while
-        } else {
-            // No products found message
-            echo "<p>No products found".(!empty($search_term)?' matching search':'').". Click '+ Add New Product' to get started.</p>";
-        }
-        $stmt->close(); // Close the prepared statement
-    } else {
-        // Error preparing the statement
-        echo "<p style='color:red'>Error preparing database query: ".htmlspecialchars($conn->error)."</p>";
-        error_log("Manage products prepare failed: ".$conn->error); // Log error for debugging
-    }
-    ?>
-</div> </div></body>
-</html>
 <?php
-// Close the database connection *only* if it exists and is open, at the VERY END.
-if (isset($conn) && $conn instanceof mysqli && $conn->thread_id) {
-    $conn->close();
-}
+if (isset($_GET['success'])) { echo '<p class="message success">Product operation successful!</p>'; }
+if (isset($_GET['error'])) { echo '<p class="message error">Error: ' . htmlspecialchars($_GET['error']) . '</p>'; }
 ?>
+
+<a href="add_product.php" class="btn-add-new"><i class="fas fa-plus-circle"></i> Add New Product</a>
+
+<div class="table-wrapper">
+    <table>
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Description</th>
+                <th>Price</th>
+                <th>Shelf Life</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php
+            $product_type = $is_farmer ? 'Raw' : 'Processed';
+            $sql = "SELECT * FROM Products WHERE CreatedByUserID = ? AND ProductType = ? ORDER BY ProductName ASC";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("is", $user_id, $product_type);
+            $stmt->execute();
+            $result = $stmt->get_result();
+
+            if ($result->num_rows > 0) {
+                while($row = $result->fetch_assoc()) { ?>
+                <tr>
+                    <td>
+                        <?php if(!empty($row['ProductImage']) && file_exists($row['ProductImage'])){echo '<img src="'.htmlspecialchars($row['ProductImage']).'" alt="" class="product-image-thumb">';} ?>
+                        <strong><?php echo htmlspecialchars($row['ProductName']); ?></strong>
+                    </td>
+                    <td><?php echo htmlspecialchars(substr($row['ProductDescription'] ?? '', 0, 50)) . '...'; ?></td>
+                    <td>₱<?php echo number_format($row['Price'], 2); ?></td>
+                    <td><?php echo htmlspecialchars($row['ShelfLifeDays']); ?> days</td>
+                    <td class="action-icons">
+                        <?php if ($is_farmer): ?>
+                            <a href="add_batch.php?product_id=<?php echo $row['ProductID']; ?>" title="Add Batch Details"><i class="fas fa-plus-circle"></i></a>
+                        <?php endif; ?>
+                        <a href="edit_product.php?id=<?php echo $row['ProductID']; ?>" title="Edit"><i class="fas fa-edit"></i></a>
+                        <a href="delete_product.php?id=<?php echo $row['ProductID']; ?>" class="icon-delete" title="Delete" onclick="return confirm('Are you sure you want to delete this product? This action CANNOT be undone.');"><i class="fas fa-trash-alt"></i></a>
+                    </td>
+                </tr>
+                <?php
+                // If Farmer, show batches for this product
+                if ($is_farmer) {
+                    // !! UPDATED: Query to select new quantity columns
+                    $sql_batches = "SELECT BatchID, BatchNumber, HarvestedDate, QRCodePath, 
+                                           InitialQuantity, RemainingQuantity, QuantityUnit 
+                                    FROM ProductBatches 
+                                    WHERE ProductID = ? 
+                                    ORDER BY HarvestedDate DESC";
+                    $stmt_batches = $conn->prepare($sql_batches);
+                    $stmt_batches->bind_param("i", $row['ProductID']);
+                    $stmt_batches->execute();
+                    $result_batches = $stmt_batches->get_result();
+                    
+                    if ($result_batches->num_rows > 0) { ?>
+                        <tr>
+                            <td colspan="5" style="padding-top: 0; padding-bottom: 1.5rem;">
+                                <table class="batches-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Batch Number</th>
+                                            <th>Harvest Date</th>
+                                            <th>Stock (Remaining / Initial)</th> <th>QR Code</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php while ($batch = $result_batches->fetch_assoc()) { ?>
+                                        <tr>
+                                            <td><?php echo htmlspecialchars($batch['BatchNumber']); ?></td>
+                                            <td><?php echo htmlspecialchars($batch['HarvestedDate']); ?></td>
+                                            
+                                            <td>
+                                                <?php 
+                                                echo htmlspecialchars($batch['RemainingQuantity']) . ' / ' . 
+                                                     htmlspecialchars($batch['InitialQuantity']) . ' ' . 
+                                                     htmlspecialchars($batch['QuantityUnit']); 
+                                                ?>
+                                            </td>
+                                            
+                                            <td>
+                                                <?php if (!empty($batch['QRCodePath']) && file_exists($batch['QRCodePath'])): ?>
+                                                    <a href="<?php echo htmlspecialchars($batch['QRCodePath']); ?>" target="_blank" title="View/Print QR Code">View QR</a>
+                                                <?php else: ?>
+                                                    N/A
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                    <?php } ?>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                    <?php } 
+                    $stmt_batches->close();
+                } // end if farmer
+                } // end while products
+            } else {
+                echo "<tr><td colspan='5' style='text-align:center;'>You have not added any products yet.</td></tr>";
+            }
+            $stmt->close();
+            ?>
+        </tbody>
+    </table>
+</div>
+
+</div> </body>
+</html>
+<?php if (isset($conn)) $conn->close(); ?>
